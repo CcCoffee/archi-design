@@ -31,18 +31,27 @@ Redis Cluster 故障恢复测试脚本
 用法: $0 [测试类型]
 
 测试类型:
-    all             运行所有故障测试
-    master-down     主节点故障测试
-    slave-down      从节点故障测试
-    network-split   网络分区模拟测试
-    multi-failure   多节点故障测试
-    recovery        数据恢复测试
-    help            显示帮助
+    all                 运行所有故障测试
+    master-down         主节点故障测试 (P1)
+    slave-down          从节点故障测试 (P1)
+    network-split       网络分区模拟测试 (P2)
+    multi-failure       多节点故障测试 (P2)
+    recovery            数据恢复测试
+    datacenter-failure  数据中心故障测试 (P3)
+    disaster-recovery   灾难恢复测试 (P4)
+    help                显示帮助
+
+灾难场景分类:
+    P1 - 单节点故障 (自动恢复，秒级)
+    P2 - 网络分区 (自动恢复，分钟级)
+    P3 - 数据中心故障 (手动切换，分钟级)
+    P4 - 灾难恢复 (从备份恢复，小时级)
 
 示例:
     $0 all
     $0 master-down
-    $0 slave-down
+    $0 p3              # 数据中心故障测试
+    $0 p4              # 灾难恢复测试
 
 警告: 这些测试会影响集群正常运行，请谨慎使用！
 
@@ -659,6 +668,255 @@ test_recovery() {
 }
 
 #######################################
+# P3: 数据中心故障测试
+# 模拟整个数据中心不可用的场景
+#######################################
+test_datacenter_failure() {
+    print_title "数据中心故障测试 (P3)"
+    
+    # 检查集群状态
+    if ! check_cluster_ok; then
+        error "集群状态异常，跳过测试"
+        return 1
+    fi
+    
+    info "测试场景: 模拟整个数据中心不可用"
+    info "预期结果: 集群在剩余数据中心节点上继续服务"
+    echo ""
+    
+    # 获取当前主节点
+    local masters=()
+    for port in 7001 7002 7003 7004 7005 7006; do
+        if redis-cli -p $port PING &>/dev/null; then
+            local role=$(redis-cli -p $port INFO replication 2>/dev/null | grep "^role:" | cut -d: -f2 | tr -d '\r')
+            if [ "$role" == "master" ]; then
+                masters+=($port)
+            fi
+        fi
+    done
+    
+    info "当前主节点: ${masters[*]}"
+    
+    # 写入测试数据
+    write_test_data "dc:test" 50
+    
+    # 模拟数据中心故障：停止一个主节点及其从节点
+    # 假设 7005(主) 和 7001(从) 属于同一数据中心
+    local dc_master=""
+    local dc_slave=""
+    
+    # 找到一个主节点和它的从节点
+    for master_port in "${masters[@]}"; do
+        for port in 7001 7002 7003 7004 7005 7006; do
+            if [ "$port" != "$master_port" ] && redis-cli -p $port PING &>/dev/null; then
+                local role=$(redis-cli -p $port INFO replication 2>/dev/null | grep "^role:" | cut -d: -f2 | tr -d '\r')
+                if [ "$role" == "slave" ]; then
+                    local master_info=$(redis-cli -p $port INFO replication 2>/dev/null | grep "master_port:")
+                    if echo "$master_info" | grep -q "master_port:${master_port}"; then
+                        dc_master=$master_port
+                        dc_slave=$port
+                        break 2
+                    fi
+                fi
+            fi
+        done
+    done
+    
+    if [ -z "$dc_master" ] || [ -z "$dc_slave" ]; then
+        error "无法找到主从节点对"
+        cleanup_test_data "dc:test" 50
+        return 1
+    fi
+    
+    info "模拟数据中心故障: 停止主节点 ${dc_master} 和从节点 ${dc_slave}"
+    echo ""
+    
+    # 停止主节点和从节点
+    warn "停止数据中心节点..."
+    stop_node $dc_master
+    stop_node $dc_slave
+    
+    # 等待集群检测到故障
+    info "等待集群检测故障（约 10 秒）..."
+    sleep 10
+    
+    # 检查集群状态
+    local cluster_ok=false
+    for port in 7001 7002 7003 7004 7005 7006; do
+        if redis-cli -p $port PING &>/dev/null; then
+            local state=$(redis-cli -p $port CLUSTER INFO 2>/dev/null | grep "cluster_state:" | cut -d: -f2 | tr -d '\r')
+            if [ "$state" == "ok" ]; then
+                cluster_ok=true
+                break
+            fi
+        fi
+    done
+    
+    if $cluster_ok; then
+        success "集群状态: ok（多数派节点正常）"
+    else
+        warn "集群状态: 部分不可用（槽位未完全覆盖）"
+    fi
+    
+    # 测试读写
+    info "测试集群读写能力..."
+    local write_ok=false
+    local read_ok=false
+    
+    # 尝试写入
+    for port in 7001 7002 7003 7004 7005 7006; do
+        if redis-cli -p $port PING &>/dev/null; then
+            if redis-cli -c -p $port SET "dc:test:check" "value" 2>/dev/null; then
+                write_ok=true
+                break
+            fi
+        fi
+    done
+    
+    if $write_ok; then
+        success "写入测试成功"
+    else
+        warn "写入测试失败（部分槽位不可用）"
+    fi
+    
+    # 恢复数据中心节点
+    echo ""
+    info "恢复数据中心节点..."
+    start_node $dc_master
+    start_node $dc_slave
+    
+    info "等待集群恢复（约 10 秒）..."
+    sleep 10
+    
+    # 验证数据完整性
+    verify_data "dc:test" 50
+    
+    # 清理
+    cleanup_test_data "dc:test" 50
+    redis-cli -c -p 7002 DEL "dc:test:check" &>/dev/null
+}
+
+#######################################
+# P4: 灾难恢复测试
+# 模拟从备份恢复数据的场景
+#######################################
+test_disaster_recovery() {
+    print_title "灾难恢复测试 (P4)"
+    
+    # 检查集群状态
+    if ! check_cluster_ok; then
+        error "集群状态异常，跳过测试"
+        return 1
+    fi
+    
+    info "测试场景: 模拟灾难后从备份恢复"
+    info "预期结果: 数据能够从 RDB/AOF 备份恢复"
+    echo ""
+    
+    # 写入测试数据
+    write_test_data "disaster:test" 100
+    
+    # 记录写入的数据
+    info "记录测试数据..."
+    local data_count=0
+    for i in $(seq 1 100); do
+        local key="disaster:test:${i}"
+        local value="value-${i}-$(date +%s)"
+        if redis-cli -c -p 7002 SET "$key" "$value" &>/dev/null; then
+            data_count=$((data_count + 1))
+        fi
+    done
+    info "已写入 ${data_count} 条数据"
+    
+    # 强制持久化
+    info "触发持久化..."
+    for port in 7001 7002 7003 7004 7005 7006; do
+        redis-cli -p $port BGSAVE &>/dev/null
+        redis-cli -p $port BGREWRITEAOF &>/dev/null
+    done
+    
+    sleep 5
+    
+    # 备份当前数据文件
+    local backup_dir="${HOME}/.redis-cluster/backup_$(date +%Y%m%d_%H%M%S)"
+    info "创建备份到 ${backup_dir}..."
+    mkdir -p "$backup_dir"
+    
+    for port in 7001 7002 7003 7004 7005 7006; do
+        local data_dir="${HOME}/.redis-cluster/data/${port}"
+        local backup_subdir="${backup_dir}/${port}"
+        mkdir -p "$backup_subdir"
+        
+        # 备份 RDB 文件
+        if [ -f "${data_dir}/dump-${port}.rdb" ]; then
+            cp "${data_dir}/dump-${port}.rdb" "${backup_subdir}/"
+        fi
+        
+        # 备份 AOF 目录
+        if [ -d "${data_dir}/appendonlydir" ]; then
+            cp -r "${data_dir}/appendonlydir" "${backup_subdir}/"
+        fi
+    done
+    
+    success "备份完成"
+    
+    # 模拟灾难：删除所有数据
+    warn "模拟灾难: 清空数据目录..."
+    for port in 7001 7002 7003 7004 7005 7006; do
+        rm -rf "${HOME}/.redis-cluster/data/${port}/*"
+    done
+    
+    # 恢复数据
+    info "从备份恢复数据..."
+    for port in 7001 7002 7003 7004 7005 7006; do
+        local data_dir="${HOME}/.redis-cluster/data/${port}"
+        local backup_subdir="${backup_dir}/${port}"
+        
+        mkdir -p "$data_dir"
+        
+        # 恢复 RDB 文件
+        if [ -f "${backup_subdir}/dump-${port}.rdb" ]; then
+            cp "${backup_subdir}/dump-${port}.rdb" "${data_dir}/"
+        fi
+        
+        # 恢复 AOF 目录
+        if [ -d "${backup_subdir}/appendonlydir" ]; then
+            cp -r "${backup_subdir}/appendonlydir" "${data_dir}/"
+        fi
+    done
+    
+    success "数据恢复完成"
+    
+    # 重启集群以加载恢复的数据
+    info "重启集群加载恢复的数据..."
+    cd /Users/kevin/Documents/trae_projects/redis_cluster/scripts
+    ./local-cluster.sh stop &>/dev/null
+    sleep 2
+    ./local-cluster.sh start &>/dev/null
+    sleep 5
+    
+    # 验证数据完整性
+    info "验证恢复的数据..."
+    local recovered_count=0
+    for i in $(seq 1 100); do
+        local key="disaster:test:${i}"
+        if redis-cli -c -p 7002 EXISTS "$key" 2>/dev/null | grep -q "1"; then
+            recovered_count=$((recovered_count + 1))
+        fi
+    done
+    
+    if [ $recovered_count -ge 90 ]; then
+        success "数据恢复成功: ${recovered_count}/100 条数据已恢复"
+    else
+        error "数据恢复失败: 仅恢复 ${recovered_count}/100 条数据"
+    fi
+    
+    # 清理
+    cleanup_test_data "disaster:test" 100
+    rm -rf "$backup_dir"
+}
+
+#######################################
 # 主函数
 #######################################
 main() {
@@ -673,6 +931,10 @@ main() {
             test_multi_failure
             echo ""
             test_recovery
+            echo ""
+            test_datacenter_failure
+            echo ""
+            test_disaster_recovery
             ;;
         master-down)
             test_master_down
@@ -688,6 +950,12 @@ main() {
             ;;
         recovery)
             test_recovery
+            ;;
+        datacenter-failure|dc-failure|p3)
+            test_datacenter_failure
+            ;;
+        disaster-recovery|dr|p4)
+            test_disaster_recovery
             ;;
         help|--help|-h)
             show_help
