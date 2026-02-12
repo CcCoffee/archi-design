@@ -32,14 +32,13 @@ Redis Cluster 故障恢复测试脚本
 
 测试类型:
     all                 运行所有故障测试
-    master-down         主节点故障测试 (P1)
-    slave-down          从节点故障测试 (P1)
-    network-split       网络分区模拟测试 (P2)
-    multi-failure       多节点故障测试 (P2)
-    recovery            数据恢复测试
-    datacenter-failure  数据中心故障测试 (P3)
-    disaster-recovery   灾难恢复测试 (P4)
-    help                显示帮助
+    master-down         主节点故障测试 (P1: 单节点故障)
+    slave-down          从节点故障测试 (P1: 单节点故障)
+    network-split       网络分区模拟测试 (P2: 网络分区)
+    multi-failure       多节点故障测试 (P2: 网络分区)
+    persistence         持久化验证测试 (验证 RDB/AOF 文件)
+    datacenter-failure  数据中心故障测试 (P3: 数据中心故障)
+    disaster-recovery   灾难恢复测试 (P4: 从备份恢复)
 
 灾难场景分类:
     P1 - 单节点故障 (自动恢复，秒级)
@@ -48,10 +47,10 @@ Redis Cluster 故障恢复测试脚本
     P4 - 灾难恢复 (从备份恢复，小时级)
 
 示例:
-    $0 all
-    $0 master-down
-    $0 p3              # 数据中心故障测试
-    $0 p4              # 灾难恢复测试
+    $0 all                    # 运行所有测试
+    $0 master-down            # 主节点故障测试
+    $0 datacenter-failure     # 数据中心故障测试 (P3)
+    $0 disaster-recovery      # 灾难恢复测试 (P4)
 
 警告: 这些测试会影响集群正常运行，请谨慎使用！
 
@@ -599,12 +598,12 @@ test_multi_failure() {
 }
 
 #######################################
-# 数据恢复测试
+# 持久化验证测试
 #######################################
-test_recovery() {
-    print_title "数据恢复测试"
+test_persistence() {
+    print_title "持久化验证测试"
     
-    info "测试场景: 验证持久化和数据恢复能力"
+    info "测试场景: 验证 RDB 和 AOF 持久化文件"
     echo ""
     
     # 写入大量测试数据
@@ -930,7 +929,7 @@ main() {
             echo ""
             test_multi_failure
             echo ""
-            test_recovery
+            test_persistence
             echo ""
             test_datacenter_failure
             echo ""
@@ -948,8 +947,8 @@ main() {
         multi-failure)
             test_multi_failure
             ;;
-        recovery)
-            test_recovery
+        persistence)
+            test_persistence
             ;;
         datacenter-failure|dc-failure|p3)
             test_datacenter_failure

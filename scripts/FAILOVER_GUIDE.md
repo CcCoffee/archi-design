@@ -38,9 +38,9 @@
 | 主节点故障 | `./failover-test.sh master-down` | 测试主节点故障和自动故障转移 | P1 |
 | 网络分区 | `./failover-test.sh network-split` | 模拟网络分区场景 | P2 |
 | 多节点故障 | `./failover-test.sh multi-failure` | 测试多个节点同时故障 | P2 |
-| 数据恢复 | `./failover-test.sh recovery` | 测试持久化和数据恢复能力 | P2 |
-| 数据中心故障 | `./failover-test.sh p3` | 测试整个数据中心不可用 | P3 |
-| 灾难恢复 | `./failover-test.sh p4` | 测试从备份恢复数据 | P4 |
+| 持久化验证 | `./failover-test.sh persistence` | 验证 RDB/AOF 持久化文件 | - |
+| 数据中心故障 | `./failover-test.sh datacenter-failure` | 测试整个数据中心不可用 | P3 |
+| 灾难恢复 | `./failover-test.sh disaster-recovery` | 测试从备份恢复数据 | P4 |
 
 ## 测试详情
 
@@ -142,9 +142,11 @@
 
 ---
 
-### 4. 数据恢复测试 (`recovery`)
+### 4. 持久化验证测试 (`persistence`)
 
-**测试目的**: 验证持久化机制和数据恢复能力
+**测试目的**: 验证持久化机制，检查 RDB 和 AOF 文件是否正常生成
+
+**说明**: 此测试是 P4 灾难恢复的前置验证，确保持久化文件存在且可用
 
 **测试流程**:
 1. 写入 100 条测试数据
@@ -161,7 +163,7 @@
 **示例输出**:
 ```
 ========================================
-  数据恢复测试
+  持久化验证测试
 ========================================
 
 ✓ 已写入 100/100 条数据
