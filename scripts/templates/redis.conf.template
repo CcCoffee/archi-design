@@ -1,0 +1,229 @@
+# Redis Cluster 节点配置模板
+# 适用于生产环境
+# 使用方法: 复制此文件并根据实际情况修改
+
+# ==================== 网络配置 ====================
+# 绑定地址，建议绑定内网地址
+bind 0.0.0.0
+
+# 服务端口
+port 6379
+
+# 保护模式，生产环境建议开启
+protected-mode yes
+
+# TCP 连接队列长度
+tcp-backlog 511
+
+# 客户端空闲超时时间，0 表示禁用
+timeout 0
+
+# TCP keepalive 设置（秒）
+tcp-keepalive 300
+
+# ==================== 通用配置 ====================
+# 是否以守护进程方式运行
+daemonize yes
+
+# 进程管理方式
+supervised no
+
+# PID 文件路径
+pidfile /var/run/redis/redis-server.pid
+
+# 日志级别: debug, verbose, notice, warning
+loglevel notice
+
+# 日志文件路径
+logfile /var/log/redis/redis-server.log
+
+# 数据库数量
+databases 16
+
+# 是否显示启动 Logo
+always-show-logo no
+
+# ==================== 快照持久化 (RDB) ====================
+# 快照策略: 秒 变更次数
+save 900 1
+save 300 10
+save 60 10000
+
+# BGSAVE 失败时停止写入
+stop-writes-on-bgsave-error yes
+
+# 压缩 RDB 文件
+rdbcompression yes
+
+# RDB 文件校验
+rdbchecksum yes
+
+# RDB 文件名
+dbfilename dump.rdb
+
+# 数据目录
+dir /var/lib/redis
+
+# ==================== AOF 持久化 ====================
+# 启用 AOF
+appendonly yes
+
+# AOF 文件名
+appendfilename "appendonly.aof"
+
+# AOF 同步策略: always, everysec, no
+appendfsync everysec
+
+# AOF 重写期间禁用 fsync
+no-appendfsync-on-rewrite no
+
+# AOF 自动重写阈值
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+# 加载截断的 AOF 文件
+aof-load-truncated yes
+
+# AOF 重写时使用 RDB 前导
+aof-use-rdb-preamble yes
+
+# ==================== 内存管理 ====================
+# 最大内存限制
+maxmemory 4gb
+
+# 内存淘汰策略
+# volatile-lru: 从设置了过期时间的数据集中淘汰最近最少使用的 key
+# allkeys-lru: 从所有数据集中淘汰最近最少使用的 key
+# volatile-lfu: 从设置了过期时间的数据集中淘汰最不经常使用的 key
+# allkeys-lfu: 从所有数据集中淘汰最不经常使用的 key
+# volatile-random: 从设置了过期时间的数据集中随机淘汰 key
+# allkeys-random: 从所有数据集中随机淘汰 key
+# volatile-ttl: 从设置了过期时间的数据集中淘汰即将过期的 key
+# noeviction: 不淘汰任何 key，当内存满时返回错误
+maxmemory-policy volatile-lru
+
+# LRU/LFU 样本数量
+maxmemory-samples 5
+
+# ==================== 集群配置 ====================
+# 启用集群模式
+cluster-enabled yes
+
+# 集群配置文件（自动生成和维护）
+cluster-config-file nodes.conf
+
+# 节点超时时间（毫秒）
+cluster-node-timeout 5000
+
+# 从节点有效性因子
+# 如果主节点断开超过 node-timeout * slave-validity-factor 时间
+# 从节点不会尝试故障转移
+cluster-slave-validity-factor 10
+
+# 迁移屏障
+# 主节点至少需要保持连接的从节点数量
+cluster-migration-barrier 1
+
+# 是否要求完整槽位覆盖
+# yes: 所有槽位都必须有节点负责
+# no: 允许部分槽位不可用
+cluster-require-full-coverage yes
+
+# 集群公告 IP（跨 NAT 时使用）
+# cluster-announce-ip 10.1.1.1
+
+# 集群公告端口
+# cluster-announce-port 6379
+
+# 集群公告总线端口
+# cluster-announce-bus-port 16379
+
+# ==================== 复制配置 ====================
+# 从节点是否可以响应过期数据
+replica-serve-stale-data yes
+
+# 从节点是否只读
+replica-read-only yes
+
+# 无盘复制
+repl-diskless-sync no
+
+# 无盘复制延迟
+repl-diskless-sync-delay 5
+
+# 禁用复制 TCP_NODELAY
+repl-disable-tcp-nodelay no
+
+# 复制积压缓冲区大小
+repl-backlog-size 64mb
+
+# 复制积压缓冲区 TTL
+repl-backlog-ttl 3600
+
+# 从节点优先级（用于故障转移选举）
+replica-priority 100
+
+# ==================== 安全配置 ====================
+# 访问密码
+# requirepass your_strong_password_here
+
+# 主节点认证密码（从节点使用）
+# masterauth your_strong_password_here
+
+# 重命名危险命令
+# rename-command FLUSHDB ""
+# rename-command FLUSHALL ""
+# rename-command KEYS ""
+# rename-command CONFIG ""
+
+# ==================== 限制配置 ====================
+# 最大客户端连接数
+maxclients 10000
+
+# ==================== 慢查询日志 ====================
+# 慢查询阈值（微秒），-1 表示禁用
+slowlog-log-slower-than 10000
+
+# 慢查询日志最大长度
+slowlog-max-len 128
+
+# ==================== 延迟监控 ====================
+# 延迟监控阈值（毫秒），0 表示禁用
+latency-monitor-threshold 100
+
+# ==================== 事件通知 ====================
+# 键空间通知配置
+# K: 键空间通知
+# E: 键事件通知
+# g: DEL, EXPIRE, RENAME 等通用命令
+# $: String 命令
+# l: List 命令
+# s: Set 命令
+# h: Hash 命令
+# z: Sorted Set 命令
+# x: 过期事件
+# e: 驱逐事件
+# A: 相当于 g$lshzxe
+notify-keyspace-events ""
+
+# ==================== 高级配置 ====================
+# Hz 设置（时间事件处理频率）
+hz 10
+
+# 动态 Hz
+dynamic-hz yes
+
+# AOF 重写增量同步
+aof-rewrite-incremental-fsync yes
+
+# RDB 保存增量同步
+rdb-save-incremental-fsync yes
+
+# ==================== Active Defragmentation ====================
+# 活跃碎片整理
+activedefrag no
+active-defrag-ignore-bytes 100mb
+active-defrag-threshold-lower 10
+active-defrag-threshold-upper 100
+active-defrag-cycle-min 25
+active-defrag-cycle-max 75
