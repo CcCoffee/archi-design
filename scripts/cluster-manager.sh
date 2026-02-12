@@ -70,9 +70,9 @@ Redis Cluster 集群管理脚本
 
 示例:
     $0 status
-    $0 failover --node 127.0.0.1:7003
+    $0 failover --node 127.0.0.1:7004
     $0 reshard --from <node-id> --to <node-id> --slots 1000
-    $0 add-node --new 127.0.0.1:7006 --master 127.0.0.1:7000
+    $0 add-node --new 127.0.0.1:7007 --master 127.0.0.1:7001
 
 EOF
 }

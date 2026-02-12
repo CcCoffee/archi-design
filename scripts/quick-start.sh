@@ -14,6 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 加载公共函数
 source "${SCRIPT_DIR}/common/utils.sh"
 
+# 加载环境配置
+source "${SCRIPT_DIR}/env/local.env"
+
 print_title "Redis Cluster 快速启动"
 
 # 检查 Redis 是否安装
@@ -34,7 +37,8 @@ echo ""
 info "检查端口..."
 ports_in_use=()
 
-for port in 7000 7001 7002 7003 7004 7005; do
+for node in "${ALL_NODES[@]}"; do
+    port=$(echo $node | cut -d: -f2)
     if is_port_in_use $port; then
         ports_in_use+=($port)
     fi
@@ -78,8 +82,8 @@ print_title "快速启动完成"
 
 echo ""
 info "集群信息:"
-echo "  主节点: 127.0.0.1:7000, 127.0.0.1:7001, 127.0.0.1:7002"
-echo "  从节点: 127.0.0.1:7003, 127.0.0.1:7004, 127.0.0.1:7005"
+echo "  主节点: ${DC_A_NODES[*]}"
+echo "  从节点: ${DC_B_NODES[*]}"
 echo ""
 info "常用命令:"
 echo "  查看状态: ./redis-cluster.sh status"
@@ -88,5 +92,6 @@ echo "  健康检查: ./redis-cluster.sh health"
 echo "  停止集群: ./redis-cluster.sh stop"
 echo ""
 info "连接集群:"
-echo "  redis-cli -c -p 7000"
+local first_port=$(echo ${DC_A_NODES[0]} | cut -d: -f2)
+echo "  redis-cli -c -p ${first_port}"
 echo ""

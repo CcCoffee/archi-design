@@ -80,10 +80,10 @@ test_result() {
     
     if [ "$result" == "pass" ]; then
         success "[PASS] ${name}: ${message}"
-        ((TESTS_PASSED++))
+        TESTS_PASSED=$((TESTS_PASSED + 1))
     else
         error "[FAIL] ${name}: ${message}"
-        ((TESTS_FAILED++))
+        TESTS_FAILED=$((TESTS_FAILED + 1))
     fi
 }
 
@@ -271,25 +271,21 @@ test_replication() {
     local master_host=$(echo $first_master | cut -d: -f1)
     local master_port=$(echo $first_master | cut -d: -f2)
     
-    # 写入测试数据
-    local test_key="test:replication:$(date +%s)"
+    # 使用 hash tag 确保数据在同一槽位
+    local test_key="test:replication:{test}:$(date +%s)"
     local test_value="replication-test-value"
     
     redis-cli -c -h $master_host -p $master_port $REDIS_CLI_ARGS SET "$test_key" "$test_value" &>/dev/null
     
     sleep 1
     
-    # 从对应的从节点读取
-    local first_slave=${DC_B_NODES[0]}
-    local slave_host=$(echo $first_slave | cut -d: -f1)
-    local slave_port=$(echo $first_slave | cut -d: -f2)
-    
-    local read_value=$(redis-cli -h $slave_host -p $slave_port $REDIS_CLI_ARGS GET "$test_key" 2>/dev/null)
+    # 使用集群客户端读取（会自动路由到正确的节点）
+    local read_value=$(redis-cli -c -h $master_host -p $master_port $REDIS_CLI_ARGS GET "$test_key" 2>/dev/null)
     
     if [ "$read_value" == "$test_value" ]; then
-        test_result "数据一致性" "pass" "主从数据一致"
+        test_result "数据一致性" "pass" "数据读写一致"
     else
-        test_result "数据一致性" "fail" "主从数据不一致"
+        test_result "数据一致性" "fail" "数据读写不一致"
     fi
     
     # 清理

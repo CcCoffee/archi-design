@@ -48,7 +48,7 @@ Redis Cluster 本地开发环境管理脚本
     $0 stop                 # 停止所有节点
     $0 create               # 创建集群
     $0 reset                # 重置集群
-    $0 logs -n 7000         # 查看 7000 端口节点日志
+    $0 logs -n 7001         # 查看 7001 端口节点日志
     $0 test                 # 运行测试
 
 EOF
@@ -485,12 +485,14 @@ run_tests() {
         # 写入测试数据
         local test_key="test:cluster:$(date +%s)"
         local test_value="hello-redis-cluster"
+        local first_master_port=$(echo ${DC_A_NODES[0]} | cut -d: -f2)
+        local first_slave_port=$(echo ${DC_B_NODES[0]} | cut -d: -f2)
         
-        if redis-cli -c -p 7000 SET "$test_key" "$test_value" &>/dev/null; then
+        if redis-cli -c -p $first_master_port SET "$test_key" "$test_value" &>/dev/null; then
             success "写入测试成功"
             
             # 读取测试
-            local read_value=$(redis-cli -c -p 7003 GET "$test_key" 2>/dev/null)
+            local read_value=$(redis-cli -c -p $first_slave_port GET "$test_key" 2>/dev/null)
             if [ "$read_value" == "$test_value" ]; then
                 success "读取测试成功"
             else
@@ -498,7 +500,7 @@ run_tests() {
             fi
             
             # 清理测试数据
-            redis-cli -c -p 7000 DEL "$test_key" &>/dev/null
+            redis-cli -c -p $first_master_port DEL "$test_key" &>/dev/null
         else
             error "写入测试失败"
         fi
