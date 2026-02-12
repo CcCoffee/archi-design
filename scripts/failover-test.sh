@@ -632,11 +632,15 @@ test_recovery() {
     info "检查 AOF 文件..."
     local aof_count=0
     for port in 7001 7002 7003 7004 7005 7006; do
-        local aof_file="${HOME}/.redis-cluster/data/${port}/appendonly-${port}.aof"
-        if [ -f "$aof_file" ]; then
-            local size=$(ls -lh "$aof_file" | awk '{print $5}')
-            echo "  节点 ${port}: AOF 文件存在 (${size})"
-            aof_count=$((aof_count + 1))
+        # Redis 8.x 使用 appendonlydir 目录存放 AOF 文件
+        local aof_dir="${HOME}/.redis-cluster/data/${port}/appendonlydir"
+        if [ -d "$aof_dir" ]; then
+            local aof_files=$(ls "$aof_dir"/*.aof 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$aof_files" -gt 0 ]; then
+                local size=$(du -sh "$aof_dir" 2>/dev/null | cut -f1)
+                echo "  节点 ${port}: AOF 文件存在 (${size}, ${aof_files} 个文件)"
+                aof_count=$((aof_count + 1))
+            fi
         fi
     done
     
