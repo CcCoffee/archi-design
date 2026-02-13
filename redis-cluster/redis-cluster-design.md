@@ -77,15 +77,23 @@
 │  │                                                                         │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
-│  ┌─────────────────────────────── 网络层 ─────────────────────────────────┐ │
+│  ┌─────────────────────────────── 客户端连接层 ───────────────────────────┐ │
 │  │                                                                         │ │
-│  │  ┌──────────────┐                      ┌──────────────┐                │ │
-│  │  │  VIP (主)    │                      │  VIP (备)    │                │ │
-│  │  │  10.1.1.100  │◄─────── 同步 ───────►│  10.2.1.100  │                │ │
-│  │  │  DC-A        │                      │  DC-B        │                │ │
-│  │  └──────────────┘                      └──────────────┘                │ │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │ │
+│  │  │  Redis Cluster 客户端 (Jedis / Lettuce / Redisson)              │  │ │
+│  │  │                                                                  │  │ │
+│  │  │  配置节点列表：                                                   │  │ │
+│  │  │  ├── 10.1.1.1:6379 (Node-1, DC-A)                              │  │ │
+│  │  │  ├── 10.1.1.2:6379 (Node-2, DC-A)                              │  │ │
+│  │  │  ├── 10.1.1.3:6379 (Node-3, DC-A)                              │  │ │
+│  │  │  ├── 10.2.1.1:6379 (Node-4, DC-B)                              │  │ │
+│  │  │  ├── 10.2.1.2:6379 (Node-5, DC-B)                              │  │ │
+│  │  │  └── 10.2.1.3:6379 (Node-6, DC-B)                              │  │ │
+│  │  │                                                                  │  │ │
+│  │  │  ★ 客户端自动发现集群拓扑、缓存槽位映射、智能路由                 │  │ │
+│  │  └─────────────────────────────────────────────────────────────────┘  │ │
 │  │                                                                         │ │
-│  │  应用客户端通过 VIP 连接，支持跨数据中心透明切换                          │ │
+│  │  说明：Redis Cluster 模式下无需 VIP，客户端直接连接所有节点            │ │
 │  │                                                                         │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
@@ -113,42 +121,43 @@
 | 16379 | Redis Cluster 总线端口（节点通信） |
 | 26379 | Redis Sentinel 端口（可选） |
 
-### 2.3 网络架构
+### 2.3 客户端连接架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        网络架构                                  │
+│                    客户端连接架构                                │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │   应用层                                                          │
 │   ┌──────────────────────────────────────────────────────────┐  │
 │   │  客户端应用                                                │  │
-│   │  └── Redis Cluster SDK (支持 Cluster 模式)               │  │
-│   │      └── 自动发现节点、智能路由、故障转移                 │  │
+│   │  └── Redis Cluster SDK (Jedis / Lettuce / Redisson)      │  │
+│   │      ├── 配置所有节点地址                                 │  │
+│   │      ├── 自动发现集群拓扑                                 │  │
+│   │      ├── 本地缓存槽位映射表                               │  │
+│   │      └── 智能路由 + 自动故障转移                          │  │
 │   └──────────────────────────────────────────────────────────┘  │
 │                           │                                      │
-│                           ▼                                      │
-│   接入层                                                          │
-│   ┌──────────────────────────────────────────────────────────┐  │
-│   │  负载均衡 / VIP                                           │  │
-│   │  ├── DC-A VIP: 10.1.1.100 (主)                           │  │
-│   │  └── DC-B VIP: 10.2.1.100 (备)                           │  │
-│   └──────────────────────────────────────────────────────────┘  │
-│                           │                                      │
-│          ┌────────────────┼────────────────┐                    │
-│          ▼                ▼                ▼                    │
+│         ┌─────────────────┼─────────────────┐                   │
+│         ▼                 ▼                 ▼                   │
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
 │   │   Node-1    │  │   Node-2    │  │   Node-3    │            │
+│   │  Master     │  │  Master     │  │  Master     │            │
 │   │  10.1.1.1   │  │  10.1.1.2   │  │  10.1.1.3   │            │
-│   └─────────────┘  └─────────────┘  └─────────────┘            │
+│   │  Slot:      │  │  Slot:      │  │  Slot:      │            │
+│   │  0-5460     │  │  5461-10922 │  │  10923-16383│            │
+│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘            │
 │          │                │                │                    │
 │          │    跨数据中心专线（低延迟 < 2ms）                     │
 │          │                │                │                    │
 │          ▼                ▼                ▼                    │
 │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
 │   │   Node-4    │  │   Node-5    │  │   Node-6    │            │
+│   │  Slave      │  │  Slave      │  │  Slave      │            │
 │   │  10.2.1.1   │  │  10.2.1.2   │  │  10.2.1.3   │            │
 │   └─────────────┘  └─────────────┘  └─────────────┘            │
+│                                                                  │
+│   ★ 说明：Redis Cluster 模式无需 VIP/负载均衡，客户端直连节点    │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -751,6 +760,188 @@ echo "Replication configured successfully!"
 # 验证主从关系
 echo "Verifying replication..."
 redis-cli -h 10.1.1.1 -p 6379 -a $REDIS_PASSWORD cluster nodes
+```
+
+### 6.4 客户端连接配置
+
+#### 6.4.1 Spring Boot 配置（推荐）
+
+```yaml
+# application.yml
+spring:
+  redis:
+    cluster:
+      nodes:
+        - 10.1.1.1:6379
+        - 10.1.1.2:6379
+        - 10.1.1.3:6379
+        - 10.2.1.1:6379
+        - 10.2.1.2:6379
+        - 10.2.1.3:6379
+      max-redirects: 3
+    password: YourStrongPassword123!
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 8
+        min-idle: 2
+        max-wait: 3000ms
+      shutdown-timeout: 200ms
+    timeout: 3000ms
+```
+
+#### 6.4.2 Jedis 客户端配置
+
+```java
+import redis.clients.jedis.JedisCluster;
+import redis.clients.jedis.HostAndPort;
+import redis.clients.jedis.JedisPoolConfig;
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * Jedis Cluster 客户端配置
+ */
+public class JedisClusterConfig {
+    
+    public JedisCluster jedisCluster() {
+        Set<HostAndPort> nodes = new HashSet<>();
+        nodes.add(new HostAndPort("10.1.1.1", 6379));
+        nodes.add(new HostAndPort("10.1.1.2", 6379));
+        nodes.add(new HostAndPort("10.1.1.3", 6379));
+        nodes.add(new HostAndPort("10.2.1.1", 6379));
+        nodes.add(new HostAndPort("10.2.1.2", 6379));
+        nodes.add(new HostAndPort("10.2.1.3", 6379));
+        
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(16);
+        poolConfig.setMaxIdle(8);
+        poolConfig.setMinIdle(2);
+        poolConfig.setMaxWaitMillis(3000);
+        
+        return new JedisCluster(
+            nodes,
+            3000,
+            3000,
+            3,
+            "YourStrongPassword123!",
+            poolConfig
+        );
+    }
+}
+```
+
+#### 6.4.3 Lettuce 客户端配置
+
+```java
+import io.lettuce.core.RedisURI;
+import io.lettuce.core.cluster.RedisClusterClient;
+import io.lettuce.core.cluster.api.StatefulRedisClusterConnection;
+import io.lettuce.core.resource.ClientResources;
+import io.lettuce.core.resource.DefaultClientResources;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * Lettuce Cluster 客户端配置
+ */
+public class LettuceClusterConfig {
+    
+    public RedisClusterClient redisClusterClient() {
+        List<RedisURI> nodes = Arrays.asList(
+            RedisURI.create("10.1.1.1", 6379),
+            RedisURI.create("10.1.1.2", 6379),
+            RedisURI.create("10.1.1.3", 6379),
+            RedisURI.create("10.2.1.1", 6379),
+            RedisURI.create("10.2.1.2", 6379),
+            RedisURI.create("10.2.1.3", 6379)
+        );
+        
+        nodes.forEach(uri -> {
+            uri.setPassword("YourStrongPassword123!");
+            uri.setTimeout(java.time.Duration.ofSeconds(3));
+        });
+        
+        ClientResources resources = DefaultClientResources.builder()
+            .ioThreadPoolSize(4)
+            .computationThreadPoolSize(4)
+            .build();
+        
+        return RedisClusterClient.create(resources, nodes);
+    }
+}
+```
+
+#### 6.4.4 Redisson 客户端配置
+
+```java
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.config.Config;
+
+/**
+ * Redisson Cluster 客户端配置
+ */
+public class RedissonClusterConfig {
+    
+    public RedissonClient redissonClient() {
+        Config config = new Config();
+        config.useClusterServers()
+            .addNodeAddress(
+                "redis://10.1.1.1:6379",
+                "redis://10.1.1.2:6379",
+                "redis://10.1.1.3:6379",
+                "redis://10.2.1.1:6379",
+                "redis://10.2.1.2:6379",
+                "redis://10.2.1.3:6379"
+            )
+            .setPassword("YourStrongPassword123!")
+            .setConnectTimeout(3000)
+            .setTimeout(3000)
+            .setRetryAttempts(3)
+            .setRetryInterval(1500)
+            .setMasterConnectionPoolSize(16)
+            .setSlaveConnectionPoolSize(16);
+        
+        return Redisson.create(config);
+    }
+}
+```
+
+#### 6.4.5 客户端连接说明
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  客户端连接关键说明                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. 节点配置数量                                                 │
+│     ├── 建议配置所有节点（6个）                                  │
+│     ├── 最少配置 2-3 个节点即可自动发现                          │
+│     └── 配置越多，初始连接成功率越高                             │
+│                                                                  │
+│  2. 无需 VIP/负载均衡                                            │
+│     ├── Redis Cluster 客户端直接连接节点                         │
+│     ├── 客户端自动发现集群拓扑                                   │
+│     └── 客户端本地缓存槽位映射表                                 │
+│                                                                  │
+│  3. 故障转移处理                                                 │
+│     ├── 客户端自动处理 MOVED 重定向                              │
+│     ├── 客户端自动更新槽位映射                                   │
+│     └── 无需人工干预                                             │
+│                                                                  │
+│  4. 跨数据中心注意事项                                           │
+│     ├── 确保客户端能访问两个数据中心的节点                       │
+│     ├── 配置合理的超时时间（建议 3-5 秒）                        │
+│     └── 配置重试次数（建议 3 次）                                │
+│                                                                  │
+│  5. 连接池配置建议                                               │
+│     ├── max-active: 根据并发量设置（建议 16-32）                 │
+│     ├── max-idle: 建议 max-active 的一半                        │
+│     ├── min-idle: 保持少量空闲连接（建议 2-4）                   │
+│     └── max-wait: 获取连接超时（建议 3000ms）                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
